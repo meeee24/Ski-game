@@ -1,1 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Grand Mountain Adventure 2 Remake</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #ccddee;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #ui {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            font-size: 24px;
+            font-weight: 800;
+            color: #2c3e50;
+            z-index: 10;
+            pointer-events: none;
+            letter-spacing: 1px;
+        }
+        #gameover {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            display: none;
+            z-index: 20;
+        }
+        button {
+            padding: 14px 28px;
+            font-size: 18px;
+            font-weight: bold;
+            background: #2ecc71;
+            color: white;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            margin-top: 20px;
+            box-shadow: 0 4px 10px rgba(46, 204, 113, 0.3);
+        }
+    </style>
+    <!-- CORRECTED THREE.JS LINK -->
+    <script src="https://cloudflare.com"></script>
+</head>
+<body>
 
+    <div id="ui">RUN DISTANCE: <span id="score">0</span>m</div>
+    
+    <div id="gameover">
+        <h1 style="color: #e74c3c; margin: 0; font-size: 32px;">WIPE OUT!</h1>
+        <p style="font-size: 18px; color: #7f8c8d;">You crashed off-trail.</p>
+        <button onclick="resetGame()">Respawn at Top</button>
+    </div>
+
+    <script>
+        let scene, camera, renderer;
+        let skier, mapObjects = [], tracks = [];
+        let score = 0;
+        let gameOver = false;
+        
+        let skierPos = { x: 0, z: 0 };
+        let skierAngle = 0; 
+        let currentSpeed = 0.0;
+        const GRAVITY_ACCEL = 0.025; 
+        const MAX_SPEED = 1.9;
+        const CARVE_SHARPNESS = 0.055; 
+        const FRICTION_BASE = 0.005;
+        const FRICTION_CARVING = 0.022; 
+
+        let steerInput = 0; 
+        let trackTick = 0;
+
+        let mapSegments = [];
+        const SEGMENT_SPACING = 30;
+        const MAP_LENGTH = 30; 
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xddeeff);
+            scene.fog = new THREE.FogExp2(0xddeeff, 0.010);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            updateCameraPosition();
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.DirectionalLight(0xffffff, 0.75);
+            sunLight.position.set(30, 60, 30);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            scene.add(sunLight);
+
+            const groundGeo = new THREE.PlaneGeometry(300, 2000);
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0xfafbfc, roughness: 0.95 });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.z = -800;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            skier = new THREE.Group();
+            
+            const bodyGeo = new THREE.CapsuleGeometry(0.35, 0.7, 4, 8);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0xe74c3c, roughness: 0.5 });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 0.7;
+            body.castShadow = true;
+            skier.add(body);
+
+            const skiGeo = new THREE.BoxGeometry(0.12, 0.04, 1.9);
+            const skiMat = new THREE.MeshStandardMaterial({ color: 0x34495e });
+            const leftSki = new THREE.Mesh(skiGeo, skiMat);
+            leftSki.position.set(-0.25, 0.04, 0);
+            const rightSki = new THREE.Mesh(skiGeo, skiMat);
+            rightSki.position.set(0.25, 0.04, 0);
+            skier.add(leftSki, rightSki);
+
+            scene.add(skier);
+
+            generateResortMap();
+
+            window.addEventListener('touchstart', handleTouch, { passive: false });
+            window.addEventListener('touchend', () => steerInput = 0);
+            window.addEventListener('mousedown', handleMouse);
+            window.addEventListener('mouseup', () => steerInput = 0);
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function generateResortMap() {
+            let currentX = 0;
+            mapSegments = [];
+
+            for (let i = 0; i < MAP_LENGTH; i++) {
+                let zPos = -(i * SEGMENT_SPACING);
+                if (i > 2) {
+                    currentX += Math.sin(i * 0.4) * 14; 
+                }
+                mapSegments.push({ x: currentX, z: zPos });
+
+                if (i > 0) {
+                    const trailWidth = 24;
+                    for(let t=0; t<3; t++) {
+                        spawnObject(currentX - trailWidth - randomRange(2, 20), zPos + randomRange(-10, 10));
+                    }
+                    for(let t=0; t<3; t++) {
+                        spawnObject(currentX + trailWidth + randomRange(2, 20), zPos + randomRange(-10, 10));
+                    }
+                    if (Math.random() > 0.6) {
+                        spawnObject(currentX + randomRange(-8, 8), zPos + randomRange(-10, 10));
+                    }
+                }
+            }
+        }
+
+        function spawnObject(x, z) {
+            const isTree = Math.random() > 0.3;
+            const obj = new THREE.Group();
+
+            if (isTree) {
+                const leavesGeo = new THREE.ConeGeometry(1.5, 3.8, 5);
+                const leavesMat = new THREE.MeshStandardMaterial({ color: 0x22783f, roughness: 0.9 });
+                const leaves = new THREE.Mesh(leavesGeo, leavesMat);
+                leaves.position.y = 2.4;
+                leaves.castShadow = true;
+                obj.add(leaves);
+
+                const trunkGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.8, 5);
+                const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a3812 });
+                const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+                trunk.position.y = 0.4;
+                obj.add(trunk);
+            } else {
+                const rockGeo = new THREE.DodecahedronGeometry(randomRange(0.8, 1.5));
+                const rockMat = new THREE.MeshStandardMaterial({ color: 0x88929a, roughness: 0.8 });
+                const rock = new THREE.Mesh(rockGeo, rockMat);
+                rock.position.y = 0.4;
+                rock.castShadow = true;
+                obj.add(rock);
+            }
+
+            obj.position.set(x, 0, z);
+            scene.add(obj);
+            mapObjects.push(obj);
+        }
+
+        function handleTouch(e) {
+            e.preventDefault();
+            const touchX = e.touches[0].clientX;
+            steerInput = touchX < window.innerWidth / 2 ? -1 : 1;
+        }
+
+        function handleMouse(e) {
+            steerInput = e.clientX < window.innerWidth / 2 ? -1 : 1;
+        }
+
+        function updateCameraPosition() {
+            camera.position.set(skierPos.x, skierPos.y + 24, skierPos.z + 20);
+            camera.lookAt(skierPos.x, skierPos.y, skierPos.z - 8);
+        }
+
+        function leaveTrackSegment(x, z, angle) {
+            const trackGeo = new THREE.PlaneGeometry(0.6, 1.0);
+            const trackMat = new THREE.MeshBasicMaterial({ 
+                color: 0xc8dae8, 
+                transparent: true, 
+                opacity: 0.5,
+                depthWrite: false 
+            });
+            const segment = new THREE.Mesh(trackGeo, trackMat);
+            segment.rotation.x = -Math.PI / 2;
+            segment.rotation.z = angle; 
+            segment.position.set(x, 0.01, z);
+            scene.add(segment);
+            tracks.push(segment);
+        }
+
+        function animate() {
+            if (gameOver) return;
+            requestAnimationFrame(animate);
+
+            if (steerInput === -1) skierAngle -= CARVE_SHARPNESS;
+            if (steerInput === 1) skierAngle += CARVE_SHARPNESS;
+
+            skierAngle = Math.max(-Math.PI/2.2, Math.min(Math.PI/2.2, skierAngle));
+
+            let gravityForce = Math.cos(skierAngle) * GRAVITY_ACCEL;
+            let currentFriction = FRICTION_BASE + (Math.abs(Math.sin(skierAngle)) * FRICTION_CARVING);
+            
+            currentSpeed += gravityForce - currentFriction;
+            currentSpeed = Math.max(0.1, Math.min(MAX_SPEED, currentSpeed));
+
+            skierPos.x += Math.sin(skierAngle) * currentSpeed;
+            skierPos.z -= Math.cos(skierAngle) * currentSpeed;
+
+            skier.position.set(skierPos.x, 0, skierPos.z);
+            skier.rotation.y = skierAngle;
+            skier.rotation.z = -steerInput * 0.15; 
+
+            updateCameraPosition();
+
+            trackTick++;
+            if (trackTick % 2 === 0 && currentSpeed > 0.2) {
+                leaveTrackSegment(skierPos.x, skierPos.z, skierAngle);
+            }
+
+            for (let i = tracks.length - 1; i >= 0; i--) {
+                tracks[i].material.opacity -= 0.003;
+
+
+            
