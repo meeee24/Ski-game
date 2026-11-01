@@ -1,0 +1,280 @@
+3D Mountain Ski Adventure
+
+body {
+margin: 0;
+overflow: hidden;
+background-color: #e0f0ff;
+font-family: Arial, sans-serif;
+}
+#ui {
+position: absolute;
+top: 20px;
+left: 20px;
+color: #2c3e50;
+font-size: 24px;
+font-weight: bold;
+pointer-events: none;
+text-shadow: 1px 1px 2px white;
+}
+#controls-hint {
+position: absolute;
+bottom: 20px;
+left: 50%;
+transform: translateX(-50%);
+color: #2c3e50;
+font-size: 16px;
+background: rgba(255, 255, 255, 0.7);
+padding: 10px 20px;
+border-radius: 20px;
+pointer-events: none;
+}
+#game-over {
+display: none;
+position: absolute;
+top: 50%;
+left: 50%;
+transform: translate(-50%, -50%);
+background: rgba(255, 255, 255, 0.9);
+padding: 40px;
+border-radius: 10px;
+text-align: center;
+box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+button {
+padding: 10px 20px;
+font-size: 18px;
+background: #3498db;
+color: white;
+border: none;
+border-radius: 5px;
+cursor: pointer;
+margin-top: 20px;
+}
+button:hover { background: #2980b9; }
+Score: 0
+Use Left/Right Arrows or A/D to Carve & Steer
+Wipeout!
+You crashed into a tree.
+Final Score: 0
+Ski Again
+// --- Game Setup & Variables ---
+let scene, camera, renderer;
+let skier, skierBody;
+let trees = [];
+let score = 0;
+let isGameOver = false;
+// Physics & Movement configuration
+const gravity = 0.15;
+const slopeAngle = 0.12; // Modifies how steep the mountain feels
+let velocity = { x: 0, z: 5 }; // Initial forward speed
+const maxSpeed = 15;
+const turnSpeed = 0.18;
+const friction = 0.985;
+// Input Tracking
+const keys = { Left: false, Right: false };
+// --- Initialization ---
+function init() {
+// Create Scene
+scene = new THREE.Scene();
+scene.background = new THREE.Color(0xe0f7fa);
+scene.fog = new THREE.FogExp2(0xe0f7fa, 0.015);
+// Create Camera (Top-down isometric-style follow camera)
+camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+// Create Renderer
+renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+// Lighting
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambientLight);
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+dirLight.position.set(20, 40, -20);
+dirLight.castShadow = true;
+scene.add(dirLight);
+// Create Environment & Player
+createMountain();
+createSkier();
+spawnInitialTrees();
+// Event Listeners
+window.addEventListener('keydown', handleKeyDown);
+window.addEventListener('keyup', handleKeyUp);
+window.addEventListener('resize', onWindowResize);
+// Start Loop
+animate();
+}
+// --- Create Game Objects ---
+function createMountain() {
+// Endless white slope mesh
+const floorGeo = new THREE.PlaneGeometry(2000, 2000);
+const floorMat = new THREE.MeshStandardMaterial({
+color: 0xfffff8,
+roughness: 0.9,
+metalness: 0.0
+});
+const floor = new THREE.Mesh(floorGeo, floorMat);
+// Rotate plane to create a downward hill slope
+floor.rotation.x = -Math.PI / 2 - slopeAngle;
+floor.position.y = -1;
+floor.receiveShadow = true;
+scene.add(floor);
+}
+function createSkier() {
+// Group to hold skis and body parts
+skier = new THREE.Group();
+// Skier main body jacket
+const bodyGeo = new THREE.BoxGeometry(0.6, 0.8, 0.6);
+const bodyMat = new THREE.MeshStandardMaterial({ color: 0xe74c3c }); // Bright red suit
+skierBody = new THREE.Mesh(bodyGeo, bodyMat);
+skierBody.position.y = 0.5;
+skierBody.castShadow = true;
+skier.add(skierBody);
+// Helmet
+const headGeo = new THREE.SphereGeometry(0.25, 8, 8);
+const headMat = new THREE.MeshStandardMaterial({ color: 0xf1c40f }); // Yellow helmet
+const head = new THREE.Mesh(headGeo, headMat);
+head.position.y = 1.0;
+skier.add(head);
+// Left Ski
+const skiMat = new THREE.MeshStandardMaterial({ color: 0x2c3e50 });
+const leftSki = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, 1.5), skiMat);
+leftSki.position.set(-0.2, 0.01, 0);
+skier.add(leftSki);
+// Right Ski
+const rightSki = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, 1.5), skiMat);
+rightSki.position.set(0.2, 0.01, 0);
+skier.add(rightSki);
+skier.position.set(0, 0, 0);
+scene.add(skier);
+}
+function createTree(zOffset) {
+const tree = new THREE.Group();
+// Trunk
+const trunkGeo = new THREE.CylinderGeometry(0.15, 0.25, 1, 6);
+const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4033 });
+const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+trunk.position.y = 0.5;
+tree.add(trunk);
+// Foliage (Pine tree cones)
+const leavesMat = new THREE.MeshStandardMaterial({ color: 0x1e5631, roughness: 0.8 });
+const cone1 = new THREE.Mesh(new THREE.ConeGeometry(0.8, 1.5, 6), leavesMat);
+cone1.position.y = 1.5;
+tree.add(cone1);
+const cone2 = new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.2, 6), leavesMat);
+cone2.position.y = 2.3;
+tree.add(cone2);
+// Random position across the track width
+const xPos = (Math.random() - 0.5) * 40;
+tree.position.set(xPos, 0, zOffset);
+// Adjust height mapping roughly to match the hill slope angle
+tree.position.y = -tree.position.z * Math.sin(slopeAngle);
+scene.add(tree);
+trees.push(tree);
+}
+function spawnInitialTrees() {
+// Generate hurdles sequentially down the mountain
+for (let i = 20; i < 500; i += 15) {
+createTree(i);
+}
+}
+// --- Input Handling ---
+function handleKeyDown(e) {
+if (isGameOver) return;
+if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") keys.Left = true;
+if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") keys.Right = true;
+}
+function handleKeyUp(e) {
+if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") keys.Left = false;
+if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") keys.Right = false;
+}
+// --- Main Game Loop ---
+function animate() {
+if (isGameOver) return;
+requestAnimationFrame(animate);
+// 1. Physics: Gravity acceleration pushing player down the slope vector
+velocity.z += gravity * Math.cos(slopeAngle);
+// 2. Handling Steering / Carving dynamics
+if (keys.Left) {
+velocity.x -= turnSpeed;
+skierBody.rotation.z = 0.3; // Lean left animation
+skier.rotation.y = 0.2;
+} else if (keys.Right) {
+velocity.x += turnSpeed;
+skierBody.rotation.z = -0.3; // Lean right animation
+skier.rotation.y = -0.2;
+} else {
+skierBody.rotation.z = 0; // Straighten up
+skier.rotation.y = 0;
+}
+// Apply friction/drag resistance to limit terminal velocity
+velocity.x *= friction;
+velocity.z *= friction;
+// Clamp max velocity speed boundaries
+if (velocity.z > maxSpeed) velocity.z = maxSpeed;
+// 3. Update Position Coordinates
+skier.position.x += velocity.x;
+skier.position.z += velocity.z;
+// Match the skier perfectly onto the downward tilted slope angle
+skier.position.y = -skier.position.z * Math.sin(slopeAngle);
+// 4. Smooth Camera Following Sequence (Maintains top-down behind perspective)
+camera.position.x = skier.position.x;
+camera.position.z = skier.position.z - 12; // Keep camera offset back
+camera.position.y = skier.position.y + 7;   // Keep camera offset up
+camera.lookAt(skier.position.x, skier.position.y, skier.position.z + 4);
+// 5. Score Progression tracking
+score = Math.floor(skier.position.z);
+document.getElementById("score").innerText = score;
+// 6. Loop Trees Recycling & Collision Checks
+manageObstaclesAndCollisions();
+renderer.render(scene, camera);
+}
+function manageObstaclesAndCollisions() {
+for (let i = 0; i < trees.length; i++) {
+let tree = trees[i];
+// If player safely skied way past a tree, recycle it further down the hill
+if (skier.position.z - tree.position.z > 20) {
+tree.position.z = skier.position.z + 200 + (Math.random() * 50);
+tree.position.x = (Math.random() - 0.5) * 40;
+tree.position.y = -tree.position.z * Math.sin(slopeAngle);
+}
+// Simple Box/Distance Collision Detection between Skier and Tree Trunk
+let dx = skier.position.x - tree.position.x;
+let dz = skier.position.z - tree.position.z;
+let distance = Math.sqrt(dx * dx + dz * dz);
+if (distance < 0.8) {
+triggerGameOver();
+}
+}
+}
+function triggerGameOver() {
+isGameOver = true;
+document.getElementById("final-score").innerText = score;
+document.getElementById("game-over").style.display = "block";
+}
+function resetGame() {
+// Reset state variables
+isGameOver = false;
+score = 0;
+velocity = { x: 0, z: 5 };
+document.getElementById("game-over").style.display = "none";
+document.getElementById("score").innerText = "0";
+// Reset skier tracking position coordinate variables
+skier.position.set(0, 0, 0);
+skierBody.rotation.z = 0;
+skier.rotation.y = 0;
+// Redistribution of obstacle coordinates across the track plane array
+trees.forEach((tree, idx) => {
+tree.position.z = 20 + (idx * 15);
+tree.position.x = (Math.random() - 0.5) * 40;
+tree.position.y = -tree.position.z * Math.sin(slopeAngle);
+});
+// Re-fire standard run loop iteration logic
+animate();
+}
+function onWindowResize() {
+camera.aspect = window.innerWidth / window.innerHeight;
+camera.updateProjectionMatrix();
+renderer.setSize(window.innerWidth, window.innerHeight);
+}
+// Run application on window initialization load sequence
+window.onload = init;
