@@ -1,9 +1,9 @@
-3D Mountain Ski Adventure
+<!DOCTYPE html><html><head><title>3D Mountain Ski Adventure
 
-
+</title><style>
 body { margin: 0; overflow: hidden; background-color: #e0f0ff; font-family: Arial, sans-serif; touch-action: none; -webkit-user-select: none; user-select: none; }
 #ui { position: absolute; top: 20px; left: 20px; color: #2c3e50; font-size: 24px; font-weight: bold; pointer-events: none; text-shadow: 1px 1px 2px white; z-index: 10; }
-#controls-hint { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); color: #2c3e50; font-size: 16px; background: rgba(255, 255, 255, 0.7); padding: 10px 20px; border-radius: 20px; pointer-events: none; z-index: 10; text-align: center; }
+#controls-hint { position: absolute; bottom: 140px; left: 50%; transform: translateX(-50%); color: #2c3e50; font-size: 16px; background: rgba(255, 255, 255, 0.7); padding: 10px 20px; border-radius: 20px; pointer-events: none; z-index: 10; text-align: center; width: max-content; }
 #game-over { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255, 255, 255, 0.9); padding: 40px; border-radius: 10px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index: 20; }
 button { padding: 10px 20px; font-size: 18px; background: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 20px; }
 button:hover { background: #2980b9; }
@@ -12,16 +12,20 @@ button:hover { background: #2980b9; }
 #btn-right { right: 40px; }
 .touch-btn:active { background: rgba(41, 128, 185, 0.8); }
 
+</style></head><body>
+<div id="ui">Score: 0</div>
+<div id="controls-hint">Tap Left and Right Screen Buttons to Steer</div>
+<div id="btn-left" class="touch-btn">◀</div>
+<div id="btn-right" class="touch-btn">▶</div>
+<div id="game-over">
+    <h1>Wipeout!</h1>
+    <p>You crashed into a tree.</p>
+    <div id="final-score">Final Score: 0</div>
+    <button id="restart-btn">Ski Again</button>
+</div>
 
-Score: 0
-Tap Left and Right Screen Buttons to Steer
-◀
-▶
-Wipeout!
-You crashed into a tree.
-Final Score: 0
-Ski Again
-let scene, camera, renderer, skier, skierBody;
+<script>
+  let scene, camera, renderer, skier, skierBody;
 let trees = [];
 let score = 0;
 let isGameOver = false;
