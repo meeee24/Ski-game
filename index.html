@@ -7,7 +7,6 @@
     <!-- Include the Three.js library your game needs -->
     <script src="https://cloudflare.com"></script>
     <style>
-        /* Move your CSS styles here */
         body { margin: 0; overflow: hidden; background-color: #e0f0ff; font-family: Arial, sans-serif; }
         #ui { position: absolute; top: 20px; left: 20px; color: #2c3e50; font-size: 24px; font-weight: bold; pointer-events: none; text-shadow: 1px 1px 2px white; }
         #controls-hint { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); color: #2c3e50; font-size: 16px; background: rgba(255, 255, 255, 0.7); padding: 10px 20px; border-radius: 20px; pointer-events: none; }
@@ -18,7 +17,6 @@
 </head>
 <body>
 
-    <!-- Setup the game UI elements -->
     <div id="ui">Score: 0</div>
     <div id="controls-hint">Use Left/Right Arrows or A/D to Carve & Steer</div>
     
@@ -30,15 +28,205 @@
     </div>
 
     <script>
-        // Your JavaScript game logic goes inside this script block
         // --- Game Setup & Variables ---
-        let scene, camera, renderer, let skier, skierBody; 
-        let trees = []; 
-        let score = 0; 
+        let scene, camera, renderer, skier, skierBody;
+        let trees = [];
+        let score = 0;
         let isGameOver = false;
 
-        // ... Keep the rest of your JavaScript game logic here ...
-        // (Make sure your code initializes properly using the variables setup above)
+        // Physics & Movement Configuration
+        const gravity = 0.15;
+        const slopeAngle = 0.12; 
+
+        let velocity = { x: 0, z: 5 }; 
+        const maxSpeed = 15;
+        const turnSpeed = 0.18;
+        const friction = 0.985;
+
+        const keys = { Left: false, Right: false };
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xe0f7fa);
+            scene.fog = new THREE.FogExp2(0xe0f7fa, 0.015);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            dirLight.position.set(20, 40, -20);
+            dirLight.castShadow = true;
+            scene.add(dirLight);
+
+            createMountain();
+            createSkier();
+            spawnInitialTrees();
+
+            window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('keyup', handleKeyUp);
+            window.addEventListener('resize', onWindowResize);
+
+            animate();
+        }
+
+        function createMountain() {
+            const floorGeo = new THREE.PlaneGeometry(2000, 2000);
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0.0 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2 - slopeAngle;
+            floor.position.y = -1;
+            floor.receiveShadow = true;
+            scene.add(floor);
+        }
+
+        function createSkier() {
+            skier = new THREE.Group();
+
+            const bodyGeo = new THREE.BoxGeometry(0.6, 0.8, 0.6);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0xe74c3c }); 
+            skierBody = new THREE.Mesh(bodyGeo, bodyMat);
+            skierBody.position.y = 0.5;
+            skierBody.castShadow = true;
+            skier.add(skierBody);
+
+            const headGeo = new THREE.SphereGeometry(0.25, 8, 8);
+            const headMat = new THREE.MeshStandardMaterial({ color: 0xf1c40f }); 
+            const head = new THREE.Mesh(headGeo, headMat);
+            head.position.y = 1.0;
+            skier.add(head);
+
+            const skiMat = new THREE.MeshStandardMaterial({ color: 0x2c3e50 });
+            const leftSki = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, 1.5), skiMat);
+            leftSki.position.set(-0.2, 0.01, 0);
+            skier.add(leftSki);
+
+            const rightSki = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, 1.5), skiMat);
+            rightSki.position.set(0.2, 0.01, 0);
+            skier.add(rightSki);
+
+            skier.position.set(0, 0, 0);
+            scene.add(skier);
+        }
+
+        function createTree(zOffset) {
+            const tree = new THREE.Group();
+
+            const trunkGeo = new THREE.CylinderGeometry(0.15, 0.25, 1, 6);
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4033 });
+            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = 0.5;
+            tree.add(trunk);
+
+            const leavesMat = new THREE.MeshStandardMaterial({ color: 0x1e5631, roughness: 0.8 });
+            
+            const cone1 = new THREE.Mesh(new THREE.ConeGeometry(0.8, 1.5, 6), leavesMat);
+            cone1.position.y = 1.5;
+            tree.add(cone1);
+
+            const cone2 = new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.2, 6), leavesMat);
+            cone2.position.y = 2.3;
+            tree.add(cone2);
+
+            const xPos = (Math.random() - 0.5) * 40;
+            tree.position.set(xPos, 0, zOffset);
+            tree.position.y = -tree.position.z * Math.sin(slopeAngle);
+
+            scene.add(tree);
+            trees.push(tree);
+        }
+
+        function spawnInitialTrees() {
+            for (let i = 20; i < 500; i += 15) {
+                createTree(i);
+            }
+        }
+
+        function handleKeyDown(e) {
+            if (isGameOver) return;
+            if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") keys.Left = true;
+            if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") keys.Right = true;
+        }
+
+        function handleKeyUp(e) {
+            if (isGameOver) return;
+            if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") keys.Left = false;
+            if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") keys.Right = false;
+        }
+
+        function animate() {
+            if (isGameOver) return;
+            requestAnimationFrame(animate);
+
+            velocity.z += gravity * Math.cos(slopeAngle);
+
+            if (keys.Left) {
+                velocity.x -= turnSpeed;
+                skierBody.rotation.z = 0.3; 
+            } else if (keys.Right) {
+                velocity.x += turnSpeed;
+                skierBody.rotation.z = -0.3; 
+            } else {
+                skierBody.rotation.z = 0; 
+                velocity.x *= friction; 
+            }
+
+            velocity.z *= friction;
+            
+            if (velocity.z > maxSpeed) velocity.z = maxSpeed;
+
+            skier.position.x += velocity.x;
+            skier.position.z += velocity.z;
+            skier.position.y = -skier.position.z * Math.sin(slopeAngle);
+
+            camera.position.set(skier.position.x, skier.position.y + 7, skier.position.z - 12);
+            camera.lookAt(skier.position.x, skier.position.y, skier.position.z + 4);
+
+            score = Math.floor(skier.position.z / 10);
+            document.getElementById("ui").innerText = "Score: " + score;
+
+            if (trees.length > 0 && trees[0].position.z < skier.position.z - 20) {
+                const oldTree = trees.shift();
+                scene.remove(oldTree);
+                const furthestTreeZ = trees[trees.length - 1].position.z;
+                createTree(furthestTreeZ + 15 + Math.random() * 5);
+            }
+
+            const skierBox = new THREE.Box3().setFromObject(skierBody);
+            for (let i = 0; i < trees.length; i++) {
+                const treeBox = new THREE.Box3().setFromObject(trees[i]);
+                if (skierBox.intersectsBox(treeBox)) {
+                    triggerGameOver();
+                    break;
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function triggerGameOver() {
+            isGameOver = true;
+            document.getElementById("final-score").innerText = "Final Score: " + score;
+            document.getElementById("game-over").style.display = "block";
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        document.getElementById("restart-btn").addEventListener("click", () => {
+            location.reload();
+        });
+
+        window.onload = init;
     </script>
 </body>
 </html>
